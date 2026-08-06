@@ -1,0 +1,53 @@
+# user/plugins/simple-shop-payment-stripe/blueprints.yaml
+name: Simple Shop Payment Stripe
+version: 1.0.0
+description: Passerelle de paiement Stripe pour Simple Shop.
+icon: credit-card
+author:
+  name: Guillon Flavien
+homepage: https://votre-site.com
+keywords: grav, plugin, shop, payment, stripe
+bugs: https://votre-site.com
+license: MIT
+
+form:
+  validation: loose
+  fields:
+    enabled:
+      type: toggle
+      label: Statut du module
+      highlight: 1
+      default: 1
+      options:
+        1: PLUGIN_ADMIN.ENABLED
+        0: PLUGIN_ADMIN.DISABLED
+      validate:
+        type: bool
+    
+    stripe_mode:
+      type: select
+      label: Mode Stripe
+      default: test
+      options:
+        test: Mode Test
+        live: Mode Production
+    
+    test_secret_key:
+      type: text
+      label: Clé Secrète (Test)
+      placeholder: sk_test_...
+      
+    test_publishable_key:
+      type: text
+      label: Clé Publique (Test)
+      placeholder: pk_test_...
+
+    live_secret_key:
+      type: text
+      label: Clé Secrète (Live)
+      placeholder: sk_live_...
+
+    live_publishable_key:
+      type: text
+      label: Clé Publique (Live)
+      placeholder: pk_live_...
