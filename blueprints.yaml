@@ -10,6 +10,10 @@ keywords: grav, plugin, shop, payment, stripe
 bugs: https://votre-site.com
 license: MIT
 
+dependencies:
+  - name: simple-shop
+  - name: mvc
+
 form:
   validation: loose
   fields:
@@ -63,3 +67,9 @@ form:
       type: text
       label: Clé Publique (Live)
       placeholder: pk_live_...
+
+    webhook_secret:
+      type: text
+      label: Secret de signature du webhook
+      help: "Commence par whsec_. Affiché dans Stripe, Développeurs > Webhooks, sur le point de terminaison créé pour ce site (voir README du plugin)."
+      placeholder: whsec_...
