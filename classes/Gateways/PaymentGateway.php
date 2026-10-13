@@ -4,6 +4,7 @@ namespace Grav\Plugin\SimpleShopPaymentStripe\Gateways;
 use Grav\Common\Grav;
 use Grav\Common\Utils;
 use Grav\Plugin\SimpleShop\Gateways\RedirectPaymentGatewayInterface;
+use Grav\Plugin\SimpleShop\Orders\PendingPayment;
 use Stripe\Checkout\Session as CheckoutSession;
 use Stripe\PaymentIntent;
 use Stripe\Stripe;
@@ -64,6 +65,24 @@ class PaymentGateway implements RedirectPaymentGatewayInterface
         return max((int) round(((float) ($orderData['billing_total'] ?? 0)) * 100), self::MIN_AMOUNT_CENTS);
     }
 
+    /**
+     * Enregistre (ou met à jour) l'instantané de la commande en cours et
+     * retourne son identifiant, à confier à Stripe dans les métadonnées : le
+     * webhook s'en sert pour créer la commande sans session.
+     */
+    private function snapshotId(array $orderData): string
+    {
+        $session = Grav::instance()['session'];
+        $existing = $session->shop_order->stripe_snapshot_id ?? null;
+        $id = PendingPayment::save($orderData, $this->amountInCents($orderData), is_string($existing) ? $existing : null);
+
+        if (isset($session->shop_order)) {
+            $session->shop_order->stripe_snapshot_id = $id;
+        }
+
+        return $id;
+    }
+
     public function getId(): string
     {
         return 'stripe';
@@ -120,6 +139,7 @@ class PaymentGateway implements RedirectPaymentGatewayInterface
     {
         $session = Grav::instance()['session'];
         $amountInCents = $this->amountInCents($orderData);
+        $snapshotId = $this->snapshotId($orderData);
         $paymentIntentId = $session->shop_order->stripe_payment_intent_id ?? null;
         $paymentIntent = null;
 
@@ -144,6 +164,7 @@ class PaymentGateway implements RedirectPaymentGatewayInterface
                 'metadata' => [
                     'cart_id' => $orderData['cart_id'] ?? 'unknown',
                     'customer_email' => $orderData['customer']['email'] ?? '',
+                    'shop_snapshot' => $snapshotId,
                 ],
             ]);
         }
@@ -269,6 +290,7 @@ class PaymentGateway implements RedirectPaymentGatewayInterface
                     'metadata' => [
                         'cart_id' => $orderData['cart_id'] ?? 'unknown',
                         'customer_email' => $orderData['customer']['email'] ?? '',
+                        'shop_snapshot' => $this->snapshotId($orderData),
                     ],
                 ],
             ];

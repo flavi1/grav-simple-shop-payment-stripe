@@ -3,6 +3,7 @@ namespace Grav\Plugin;
 
 use Grav\Common\Plugin;
 use RocketTheme\Toolbox\Event\Event;
+use Grav\Plugin\SimpleShopPaymentStripe\Controllers\WebhookController;
 use Grav\Plugin\SimpleShopPaymentStripe\Gateways\PaymentGateway;
 
 class SimpleShopPaymentStripePlugin extends Plugin
@@ -10,7 +11,10 @@ class SimpleShopPaymentStripePlugin extends Plugin
     public static function getSubscribedEvents()
     {
         return [
-            'onPluginsInitialized' => ['onPluginsInitialized', 0]
+            'onPluginsInitialized' => ['onPluginsInitialized', 0],
+            // Abonnement statique : le plugin mvc déclenche cet événement pendant
+            // SON onPluginsInitialized (priorité 1000), avant le nôtre.
+            'onMvcRegisterRoutes'  => ['onMvcRegisterRoutes', 0],
         ];
     }
 
@@ -34,6 +38,21 @@ class SimpleShopPaymentStripePlugin extends Plugin
             'onSimpleShopRegisterGateways' => ['onSimpleShopRegisterGateways', 0],
             'onTwigTemplatePaths'          => ['onTwigTemplatePaths', 0],
         ]);
+    }
+
+    /**
+     * Route du webhook Stripe (`/stripe/webhook` par défaut, modifiable via
+     * `webhook_route`).
+     */
+    public function onMvcRegisterRoutes()
+    {
+        $router = $this->grav['mvc_router'] ?? null;
+        if (!$router) {
+            return;
+        }
+
+        $route = (string) $this->config->get('plugins.simple-shop-payment-stripe.webhook_route', '/stripe/webhook');
+        $router->add($route, [WebhookController::class, 'handle']);
     }
 
     /**
