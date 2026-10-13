@@ -1,0 +1,45 @@
+{#
+    Paiement Stripe avec JavaScript (Stripe Elements intégré à la page).
+
+    Aucun script « en ligne » : la configuration passe par des attributs
+    data-* et le code est dans js/stripe-payment.js. Sans JavaScript, le bloc
+    <noscript> propose le paiement hébergé (même formulaire que nojs.html.twig).
+#}
+<link rel="stylesheet" href="{{ url('plugin://simple-shop-payment-stripe/css/stripe.css') }}">
+<div class="payment-gateway-stripe-box">
+    <h4>Paiement sécurisé par carte bancaire</h4>
+    <p>Montant total à régler : <strong>{{ total }} €</strong></p>
+
+    {% if error %}
+        <div class="alert error">{{ error }}</div>
+    {% else %}
+        <form id="payment-form" method="POST" action="{{ action_url }}"
+              data-publishable-key="{{ publishable_key }}"
+              data-client-secret="{{ client_secret }}"
+              data-return-url="{{ return_url }}">
+            <input type="hidden" name="action" value="execute_payment">
+            <input type="hidden" name="nonce" value="{{ nonce }}">
+
+            {# Conteneur Stripe Elements (rempli par js/stripe-payment.js) #}
+            <div id="payment-element"></div>
+
+            <button type="submit" id="submit-button" class="btn stripe-pay-button">
+                <span id="button-text">Payer {{ total }} €</span>
+                <span id="spinner" hidden>Traitement en cours…</span>
+            </button>
+            <div id="payment-message" role="alert"></div>
+        </form>
+
+        <noscript>
+            <p>Votre navigateur n'exécute pas JavaScript : utilisez le paiement sur la page sécurisée de Stripe.</p>
+            <form method="POST" action="{{ action_url }}">
+                <input type="hidden" name="action" value="start_hosted_payment">
+                <input type="hidden" name="nonce" value="{{ nonce }}">
+                <button type="submit" class="btn stripe-pay-button">Payer {{ total }} € sur Stripe</button>
+            </form>
+        </noscript>
+
+        <script src="https://js.stripe.com/v3/" defer></script>
+        <script src="{{ url('plugin://simple-shop-payment-stripe/js/stripe-payment.js') }}" defer></script>
+    {% endif %}
+</div>

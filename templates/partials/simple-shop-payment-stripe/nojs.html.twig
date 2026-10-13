@@ -1,0 +1,17 @@
+{#
+    Paiement Stripe SANS JavaScript : un simple formulaire qui envoie le client
+    sur la page de paiement hébergée de Stripe, puis le ramène sur le site
+    (route de retour du plugin simple-shop). Voir PaymentGateway::startHostedPayment().
+#}
+<link rel="stylesheet" href="{{ url('plugin://simple-shop-payment-stripe/css/stripe.css') }}">
+<div class="payment-gateway-stripe-box">
+    <h4>Paiement sécurisé par carte bancaire</h4>
+    <p>Montant total à régler : <strong>{{ total }} €</strong></p>
+    <p>Vous allez être redirigé vers la page de paiement sécurisée de Stripe, puis ramené sur ce site.</p>
+
+    <form method="POST" action="{{ action_url }}">
+        <input type="hidden" name="action" value="start_hosted_payment">
+        <input type="hidden" name="nonce" value="{{ nonce }}">
+        <button type="submit" class="btn stripe-pay-button">Payer {{ total }} € sur Stripe</button>
+    </form>
+</div>

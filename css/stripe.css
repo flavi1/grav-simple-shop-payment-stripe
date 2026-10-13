@@ -1,0 +1,38 @@
+/* Paiement Stripe (plugin simple-shop-payment-stripe) — styles sortis du PHP. */
+.payment-gateway-stripe-box {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    padding: 1.5rem;
+    border-radius: 8px;
+    margin: 1rem 0;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+}
+.payment-gateway-stripe-box h4 {
+    margin-top: 0;
+    color: #1a202c;
+}
+.payment-gateway-stripe-box form {
+    margin-top: 1.5rem;
+}
+.payment-gateway-stripe-box #payment-element {
+    margin-bottom: 1.5rem;
+}
+.payment-gateway-stripe-box .stripe-pay-button {
+    background: #635bff;
+    color: #fff;
+    border: none;
+    padding: 0.75rem 1.5rem;
+    cursor: pointer;
+    border-radius: 4px;
+    width: 100%;
+    font-weight: bold;
+}
+.payment-gateway-stripe-box .stripe-pay-button:disabled {
+    opacity: 0.6;
+    cursor: wait;
+}
+.payment-gateway-stripe-box #payment-message {
+    color: #e53e3e;
+    margin-top: 1rem;
+    font-size: 0.9rem;
+}
