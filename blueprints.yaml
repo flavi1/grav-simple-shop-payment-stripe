@@ -24,6 +24,18 @@ form:
       validate:
         type: bool
     
+    use_javascript:
+      type: toggle
+      label: Formulaire de paiement intégré (JavaScript)
+      help: "Activé : formulaire Stripe Elements dans la page (le bouton de repli sans JavaScript reste proposé). Désactivé : aucun JavaScript, le client règle sur la page hébergée de Stripe puis revient sur le site."
+      highlight: 1
+      default: 1
+      options:
+        1: PLUGIN_ADMIN.ENABLED
+        0: PLUGIN_ADMIN.DISABLED
+      validate:
+        type: bool
+
     stripe_mode:
       type: select
       label: Mode Stripe

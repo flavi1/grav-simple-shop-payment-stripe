@@ -31,8 +31,17 @@ class SimpleShopPaymentStripePlugin extends Plugin
         }
 
         $this->enable([
-            'onSimpleShopRegisterGateways' => ['onSimpleShopRegisterGateways', 0]
+            'onSimpleShopRegisterGateways' => ['onSimpleShopRegisterGateways', 0],
+            'onTwigTemplatePaths'          => ['onTwigTemplatePaths', 0],
         ]);
+    }
+
+    /**
+     * Rend disponibles les partiels du plugin (templates/partials/simple-shop-payment-stripe/).
+     */
+    public function onTwigTemplatePaths()
+    {
+        $this->grav['twig']->twig_paths[] = __DIR__ . '/templates';
     }
 
     public function onSimpleShopRegisterGateways(Event $event)

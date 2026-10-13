@@ -2,23 +2,66 @@
 namespace Grav\Plugin\SimpleShopPaymentStripe\Gateways;
 
 use Grav\Common\Grav;
-use Grav\Plugin\SimpleShop\Gateways\PaymentGatewayInterface;
-use Grav\Plugin\SimpleShop\Inventory\CartStorage;
 use Grav\Common\Utils;
-use Stripe\Stripe;
+use Grav\Plugin\SimpleShop\Gateways\RedirectPaymentGatewayInterface;
+use Stripe\Checkout\Session as CheckoutSession;
 use Stripe\PaymentIntent;
+use Stripe\Stripe;
 
-class PaymentGateway implements PaymentGatewayInterface
+/**
+ * Passerelle Stripe.
+ *
+ * Deux modes d'affichage, au choix dans la configuration du plugin
+ * (`use_javascript`) :
+ *
+ *  - JavaScript (par défaut) : formulaire Stripe Elements intégré à la page
+ *    (`partials/simple-shop-payment-stripe/js.html.twig`) ; le bloc
+ *    `<noscript>` propose le paiement hébergé aux navigateurs sans JavaScript ;
+ *  - sans JavaScript : simple bouton qui envoie le client vers la page de
+ *    paiement hébergée Stripe (Checkout), puis le ramène sur le site
+ *    (`partials/simple-shop-payment-stripe/nojs.html.twig`).
+ *
+ * Quel que soit le mode, la commande n'est créée qu'après vérification du
+ * paiement auprès de Stripe (statut ET montant), et la référence de paiement
+ * (identifiant PaymentIntent) rend cette création idempotente.
+ */
+class PaymentGateway implements RedirectPaymentGatewayInterface
 {
-    protected function initStripe()
+    /** Montant minimal accepté par Stripe, en centimes (0,50 €). */
+    private const MIN_AMOUNT_CENTS = 50;
+
+    private function config(): array
     {
-        $grav = Grav::instance();
-        $config = $grav['config']->get('plugins.simple-shop-payment-stripe');
-        
+        return (array) Grav::instance()['config']->get('plugins.simple-shop-payment-stripe', []);
+    }
+
+    protected function initStripe(): void
+    {
+        $config = $this->config();
         $mode = $config['stripe_mode'] ?? 'test';
         $secretKey = ($mode === 'live') ? ($config['live_secret_key'] ?? '') : ($config['test_secret_key'] ?? '');
-        
-        Stripe::setApiKey($secretKey);
+
+        Stripe::setApiKey((string) $secretKey);
+    }
+
+    private function publishableKey(): string
+    {
+        $config = $this->config();
+        $mode = $config['stripe_mode'] ?? 'test';
+
+        return (string) (($mode === 'live') ? ($config['live_publishable_key'] ?? '') : ($config['test_publishable_key'] ?? ''));
+    }
+
+    /** Vrai si le formulaire intégré (JavaScript) est activé. */
+    private function useJavascript(): bool
+    {
+        return (bool) ($this->config()['use_javascript'] ?? true);
+    }
+
+    /** Montant à régler en centimes, avec le plancher imposé par Stripe. */
+    private function amountInCents(array $orderData): int
+    {
+        return max((int) round(((float) ($orderData['billing_total'] ?? 0)) * 100), self::MIN_AMOUNT_CENTS);
     }
 
     public function getId(): string
@@ -31,195 +74,270 @@ class PaymentGateway implements PaymentGatewayInterface
         return 'Paiement par Stripe';
     }
 
+    // ------------------------------------------------------------------
+    // Affichage du formulaire (Temps 2)
+    // ------------------------------------------------------------------
+
     public function renderPaymentForm(array $orderData): string
     {
-        $this->initStripe();
-        
         $grav = Grav::instance();
-        $config = $grav['config']->get('plugins.simple-shop-payment-stripe');
-        $mode = $config['stripe_mode'] ?? 'test';
-        $publishableKey = ($mode === 'live') ? ($config['live_publishable_key'] ?? '') : ($config['test_publishable_key'] ?? '');
-        
-        $nonce = Utils::getNonce('shop-payment-step');
-        $actionUrl = $grav['uri']->route();
-        
-        $amountInCents = (int)round(($orderData['billing_total'] ?? 0) * 100);
-        $amountInCents = max($amountInCents, 50); // Minimum de sécurité Stripe (0.50 €)
+        $this->initStripe();
 
-        $clientSecret = '';
-        $session = $grav['session'];
-        $shopOrder = $session->shop_order ?? null;
-        $paymentIntentId = $shopOrder->stripe_payment_intent_id ?? null;
+        $vars = [
+            'total'          => number_format((float) ($orderData['billing_total'] ?? 0), 2, ',', ' '),
+            'nonce'          => Utils::getNonce('shop-payment-step'),
+            'action_url'     => $grav['uri']->route(),
+            'error'          => null,
+        ];
 
-        try {
-            $paymentIntent = null;
-
-            // Idempotence : tenter de réutiliser l'intention de paiement existante si le montant correspond
-            if ($paymentIntentId) {
-                try {
-                    $existingIntent = PaymentIntent::retrieve($paymentIntentId);
-                    if ($existingIntent && $existingIntent->status === 'requires_payment_method') {
-                        if ($existingIntent->amount === $amountInCents) {
-                            $paymentIntent = $existingIntent;
-                        } else {
-                            // Mettre à jour le montant si celui-ci a changé
-                            $paymentIntent = PaymentIntent::update($paymentIntentId, [
-                                'amount' => $amountInCents
-                            ]);
-                        }
-                    }
-                } catch (\Exception $ex) {
-                    // En cas d'erreur de récupération, on ignorera et on en recréera un
-                    $paymentIntent = null;
-                }
-            }
-
-            // Si aucune intention valide n'a pu être réutilisée, on en crée une nouvelle
-            if (!$paymentIntent) {
-                $paymentIntent = PaymentIntent::create([
-                    'amount' => $amountInCents,
-                    'currency' => 'eur',
-                    'automatic_payment_methods' => [
-                        'enabled' => true,
-                    ],
-                    'metadata' => [
-                        'cart_id' => $orderData['cart_id'] ?? 'unknown',
-                        'customer_email' => $orderData['customer']['email'] ?? ''
-                    ]
-                ]);
-            }
-
-            $clientSecret = $paymentIntent->client_secret;
-            
-            // Stockage de l'ID en session
-            if (isset($session->shop_order)) {
-                $session->shop_order->stripe_payment_intent_id = $paymentIntent->id;
-            }
-
-        } catch (\Exception $e) {
-            return "<div class='alert error'>Erreur d'initialisation Stripe : " . htmlspecialchars($e->getMessage()) . "</div>";
+        if (!$this->useJavascript()) {
+            return $grav['twig']->processTemplate('partials/simple-shop-payment-stripe/nojs.html.twig', $vars);
         }
 
-        $html = "
-        <div class='payment-gateway-stripe-box' style='background: #fff; border: 1px solid #e2e8f0; padding: 1.5rem; border-radius: 8px; margin: 1rem 0; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);'>
-            <h4 style='margin-top:0; color: #1a202c;'>💳 Paiement Sécurisé par Carte Bancaire</h4>
-            <p>Montant total à régler : <strong>" . number_format($orderData['billing_total'] ?? 0, 2, ',', ' ') . " €</strong></p>
-            
-            <form id='payment-form' method='POST' action='" . htmlspecialchars($actionUrl, ENT_QUOTES) . "' style='margin-top: 1.5rem;'>
-                <input type='hidden' name='action' value='execute_payment' />
-                <input type='hidden' name='nonce' value='{$nonce}' />
-                
-                <!-- Conteneur Stripe Elements -->
-                <div id='payment-element' style='margin-bottom: 1.5rem;'></div>
-                
-                <button type='submit' id='submit-button' class='btn' style='background: #635bff; color: #fff; border:none; padding: 0.75rem 1.5rem; cursor:pointer; border-radius:4px; width: 100%; font-weight: bold;'>
-                    <span id='button-text'>Payer " . number_format($orderData['billing_total'] ?? 0, 2, ',', ' ') . " €</span>
-                    <span id='spinner' style='display: none;'>Traitement en cours...</span>
-                </button>
-                <div id='payment-message' style='color: #e53e3e; margin-top: 1rem; font-size: 0.9rem;'></div>
-            </form>
-        </div>
+        try {
+            $paymentIntent = $this->ensurePaymentIntent($orderData);
+        } catch (\Throwable $e) {
+            $grav['log']->error('[SimpleShopPaymentStripe] Initialisation du PaymentIntent impossible : ' . $e->getMessage());
+            $vars['error'] = "Erreur d'initialisation du paiement. Veuillez réessayer ou nous contacter.";
 
-        <script src='https://js.stripe.com/v3/'></script>
-        <script>
-            document.addEventListener('DOMContentLoaded', async () => {
-                const stripe = Stripe('" . $publishableKey . "');
-                const clientSecret = '" . $clientSecret . "';
-                
-                const elements = stripe.elements({ clientSecret });
-                const paymentElement = elements.create('payment');
-                paymentElement.mount('#payment-element');
+            return $grav['twig']->processTemplate('partials/simple-shop-payment-stripe/js.html.twig', $vars);
+        }
 
-                const form = document.getElementById('payment-form');
-                form.addEventListener('submit', async (e) => {
-                    e.preventDefault();
-                    
-                    setLoading(true);
-                    const messageContainer = document.querySelector('#payment-message');
-                    messageContainer.textContent = '';
+        $vars['publishable_key'] = $this->publishableKey();
+        $vars['client_secret']   = $paymentIntent->client_secret;
+        // Retour des paiements à redirection (3-D Secure) : route de retour du site.
+        $vars['return_url']      = $grav['base_url_absolute']
+            . ($grav['config']->get('plugins.simple-shop.routes.payment_return') ?: '/checkout/payment-return');
 
-                    const { error } = await stripe.confirmPayment({
-                        elements,
-                        confirmParams: {
-                            return_url: window.location.href,
-                        },
-                        redirect: 'if_required'
-                    });
-
-                    if (error) {
-                        messageContainer.textContent = error.message;
-                        setLoading(false);
-                    } else {
-                        form.submit();
-                    }
-                });
-
-                function setLoading(isLoading) {
-                    const submitButton = document.querySelector('#submit-button');
-                    const spinner = document.querySelector('#spinner');
-                    const buttonText = document.querySelector('#button-text');
-                    
-                    if (isLoading) {
-                        submitButton.disabled = true;
-                        spinner.style.display = 'inline';
-                        buttonText.style.display = 'none';
-                    } else {
-                        submitButton.disabled = false;
-                        spinner.style.display = 'none';
-                        buttonText.style.display = 'inline';
-                    }
-                }
-            });
-        </script>
-        ";
-
-        return $html;
+        return $grav['twig']->processTemplate('partials/simple-shop-payment-stripe/js.html.twig', $vars);
     }
+
+    /**
+     * Réutilise (ou crée) le PaymentIntent de la commande en cours et aligne
+     * son montant sur le total courant.
+     */
+    private function ensurePaymentIntent(array $orderData): PaymentIntent
+    {
+        $session = Grav::instance()['session'];
+        $amountInCents = $this->amountInCents($orderData);
+        $paymentIntentId = $session->shop_order->stripe_payment_intent_id ?? null;
+        $paymentIntent = null;
+
+        if ($paymentIntentId) {
+            try {
+                $existing = PaymentIntent::retrieve($paymentIntentId);
+                if ($existing && $existing->status === 'requires_payment_method') {
+                    $paymentIntent = ($existing->amount === $amountInCents)
+                        ? $existing
+                        : PaymentIntent::update($paymentIntentId, ['amount' => $amountInCents]);
+                }
+            } catch (\Throwable $e) {
+                $paymentIntent = null; // on en recrée un
+            }
+        }
+
+        if (!$paymentIntent) {
+            $paymentIntent = PaymentIntent::create([
+                'amount' => $amountInCents,
+                'currency' => 'eur',
+                'automatic_payment_methods' => ['enabled' => true],
+                'metadata' => [
+                    'cart_id' => $orderData['cart_id'] ?? 'unknown',
+                    'customer_email' => $orderData['customer']['email'] ?? '',
+                ],
+            ]);
+        }
+
+        if (isset($session->shop_order)) {
+            $session->shop_order->stripe_payment_intent_id = $paymentIntent->id;
+        }
+
+        return $paymentIntent;
+    }
+
+    // ------------------------------------------------------------------
+    // Mode JavaScript : finalisation après confirmPayment() côté navigateur
+    // ------------------------------------------------------------------
 
     public function processPayment(array $postData): array
     {
         $this->initStripe();
 
-        $session = Grav::instance()['session'];
-        if (!isset($session->shop_order)) {
-            return [
-                'success' => false,
-                'error' => 'Session expirée, veuillez recommencer votre commande.'
-            ];
+        $order = Grav::instance()['session']->shop_order ?? null;
+        if (!$order) {
+            return ['success' => false, 'error' => 'Session expirée, veuillez recommencer votre commande.'];
         }
-        
-        $order = $session->shop_order;
+
         $paymentIntentId = $order->stripe_payment_intent_id ?? null;
-
         if (!$paymentIntentId) {
-            return [
-                'success' => false,
-                'error' => 'Identifiant d\'intention de paiement introuvable dans la session.'
-            ];
+            return ['success' => false, 'error' => "Identifiant d'intention de paiement introuvable dans la session."];
         }
 
+        return $this->verifyPaymentIntent((string) $paymentIntentId, (array) $order);
+    }
+
+    /**
+     * Vérifie auprès de Stripe qu'un PaymentIntent est payé ET que le montant
+     * correspond à la commande en cours.
+     */
+    private function verifyPaymentIntent(string $paymentIntentId, array $orderData): array
+    {
         try {
             $paymentIntent = PaymentIntent::retrieve($paymentIntentId);
+        } catch (\Throwable $e) {
+            return ['success' => false, 'error' => $e->getMessage()];
+        }
 
-            if ($paymentIntent->status === 'succeeded') {
-                unset($order->stripe_payment_intent_id);
-
-                return [
-                    'success' => true,
-                    'error' => null
-                ];
-            }
-
+        if ($paymentIntent->status !== 'succeeded') {
             return [
                 'success' => false,
-                'error' => 'Le paiement n\'a pas abouti (Statut actuel : ' . $paymentIntent->status . ').'
-            ];
-
-        } catch (\Exception $e) {
-            return [
-                'success' => false,
-                'error' => $e->getMessage()
+                'error' => "Le paiement n'a pas abouti (statut : " . $paymentIntent->status . ').',
             ];
         }
+
+        if ((int) $paymentIntent->amount_received !== $this->amountInCents($orderData)) {
+            Grav::instance()['log']->error("[SimpleShopPaymentStripe] Montant payé ({$paymentIntent->amount_received}) différent du total attendu pour {$paymentIntent->id}.");
+
+            return ['success' => false, 'error' => 'Le montant payé ne correspond pas au total de la commande.'];
+        }
+
+        return ['success' => true, 'error' => null, 'payment_reference' => (string) $paymentIntent->id];
+    }
+
+    // ------------------------------------------------------------------
+    // Paiement hébergé (mode sans JavaScript) et retours à redirection
+    // ------------------------------------------------------------------
+
+    public function startHostedPayment(array $orderData, string $returnUrl): array
+    {
+        $this->initStripe();
+
+        try {
+            $currency = 'eur';
+            $lines = [];
+            $linesTotal = 0;
+
+            foreach (\Grav\Plugin\SimpleShop\Inventory\CartStorage::getCart() as $item) {
+                $unit = (int) round(((float) ($item['price'] ?? 0)) * 100);
+                $qty  = (int) ($item['quantity'] ?? 0);
+                if ($unit <= 0 || $qty <= 0) {
+                    continue;
+                }
+                $lines[] = [
+                    'quantity' => $qty,
+                    'price_data' => [
+                        'currency' => $currency,
+                        'unit_amount' => $unit,
+                        'product_data' => ['name' => (string) ($item['title'] ?? 'Article')],
+                    ],
+                ];
+                $linesTotal += $unit * $qty;
+            }
+
+            $shipping = (int) round(((float) ($orderData['shipping']['price'] ?? 0)) * 100);
+            if ($shipping > 0) {
+                $lines[] = [
+                    'quantity' => 1,
+                    'price_data' => [
+                        'currency' => $currency,
+                        'unit_amount' => $shipping,
+                        'product_data' => ['name' => 'Frais de livraison'],
+                    ],
+                ];
+                $linesTotal += $shipping;
+            }
+
+            // Garde-fou : le détail ne doit jamais s'écarter du total attendu.
+            if ($lines === [] || $linesTotal !== $this->amountInCents($orderData)) {
+                $lines = [[
+                    'quantity' => 1,
+                    'price_data' => [
+                        'currency' => $currency,
+                        'unit_amount' => $this->amountInCents($orderData),
+                        'product_data' => ['name' => 'Commande'],
+                    ],
+                ]];
+            }
+
+            $sep = (strpos($returnUrl, '?') === false) ? '?' : '&';
+            $params = [
+                'mode' => 'payment',
+                'line_items' => $lines,
+                'success_url' => $returnUrl . $sep . 'result=success&session_id={CHECKOUT_SESSION_ID}',
+                'cancel_url'  => $returnUrl . $sep . 'result=cancel',
+                'payment_intent_data' => [
+                    'metadata' => [
+                        'cart_id' => $orderData['cart_id'] ?? 'unknown',
+                        'customer_email' => $orderData['customer']['email'] ?? '',
+                    ],
+                ],
+            ];
+            $email = (string) ($orderData['customer']['email'] ?? '');
+            if ($email !== '') {
+                $params['customer_email'] = $email;
+            }
+
+            $checkout = CheckoutSession::create($params);
+
+            $session = Grav::instance()['session'];
+            if (isset($session->shop_order)) {
+                $session->shop_order->stripe_checkout_session_id = $checkout->id;
+            }
+
+            return ['url' => $checkout->url, 'error' => null];
+        } catch (\Throwable $e) {
+            Grav::instance()['log']->error('[SimpleShopPaymentStripe] Session Checkout impossible : ' . $e->getMessage());
+
+            return ['url' => null, 'error' => 'service de paiement indisponible.'];
+        }
+    }
+
+    public function confirmReturn(array $query, array $orderData): array
+    {
+        $this->initStripe();
+
+        if (($query['result'] ?? '') === 'cancel') {
+            return ['success' => false, 'cancelled' => true, 'error' => null];
+        }
+
+        // Retour d'un paiement du mode JavaScript (3-D Secure, redirection).
+        if (!empty($query['payment_intent'])) {
+            if ((string) $query['payment_intent'] !== (string) ($orderData['stripe_payment_intent_id'] ?? '')) {
+                return ['success' => false, 'cancelled' => false, 'error' => 'paiement inconnu pour cette commande.'];
+            }
+
+            return $this->verifyPaymentIntent((string) $query['payment_intent'], $orderData) + ['cancelled' => false];
+        }
+
+        // Retour de la page hébergée (mode sans JavaScript).
+        if (!empty($query['session_id'])) {
+            if ((string) $query['session_id'] !== (string) ($orderData['stripe_checkout_session_id'] ?? '')) {
+                return ['success' => false, 'cancelled' => false, 'error' => 'session de paiement inconnue pour cette commande.'];
+            }
+
+            try {
+                $checkout = CheckoutSession::retrieve((string) $query['session_id']);
+            } catch (\Throwable $e) {
+                return ['success' => false, 'cancelled' => false, 'error' => $e->getMessage()];
+            }
+
+            if ($checkout->payment_status !== 'paid') {
+                return ['success' => false, 'cancelled' => false, 'error' => 'le paiement n\'est pas confirmé (statut : ' . $checkout->payment_status . ').'];
+            }
+
+            if ((int) $checkout->amount_total !== $this->amountInCents($orderData)) {
+                Grav::instance()['log']->error("[SimpleShopPaymentStripe] Montant payé ({$checkout->amount_total}) différent du total attendu pour la session {$checkout->id}.");
+
+                return ['success' => false, 'cancelled' => false, 'error' => 'le montant payé ne correspond pas au total de la commande.'];
+            }
+
+            // La référence de paiement est le PaymentIntent : la même clé que
+            // dans le mode JavaScript, donc une idempotence commune.
+            $reference = is_string($checkout->payment_intent) ? $checkout->payment_intent : ($checkout->payment_intent->id ?? (string) $checkout->id);
+
+            return ['success' => true, 'cancelled' => false, 'error' => null, 'payment_reference' => (string) $reference];
+        }
+
+        return ['success' => false, 'cancelled' => false, 'error' => 'retour de paiement incomplet.'];
     }
 }
