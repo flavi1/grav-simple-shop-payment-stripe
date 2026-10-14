@@ -62,7 +62,20 @@ class PaymentGateway implements RedirectPaymentGatewayInterface
     /** Montant à régler en centimes, avec le plancher imposé par Stripe. */
     private function amountInCents(array $orderData): int
     {
-        return max((int) round(((float) ($orderData['billing_total'] ?? 0)) * 100), self::MIN_AMOUNT_CENTS);
+        // Montant exact calculé par simple-shop en centimes ; ancien total décimal en repli.
+        $cents = isset($orderData['billing_total_cents'])
+            ? (int) $orderData['billing_total_cents']
+            : (int) round(((float) ($orderData['billing_total'] ?? 0)) * 100);
+
+        return max($cents, self::MIN_AMOUNT_CENTS);
+    }
+
+    /** Devise de la commande (ISO 4217 en minuscules pour Stripe), EUR par défaut. */
+    private function currency(array $orderData): string
+    {
+        $c = strtolower((string) ($orderData['billing_currency'] ?? 'EUR'));
+
+        return preg_match('/^[a-z]{3}$/', $c) ? $c : 'eur';
     }
 
     /**
@@ -159,7 +172,7 @@ class PaymentGateway implements RedirectPaymentGatewayInterface
         if (!$paymentIntent) {
             $paymentIntent = PaymentIntent::create([
                 'amount' => $amountInCents,
-                'currency' => 'eur',
+                'currency' => $this->currency($orderData),
                 'automatic_payment_methods' => ['enabled' => true],
                 'metadata' => [
                     'cart_id' => $orderData['cart_id'] ?? 'unknown',
@@ -234,12 +247,12 @@ class PaymentGateway implements RedirectPaymentGatewayInterface
         $this->initStripe();
 
         try {
-            $currency = 'eur';
+            $currency = $this->currency($orderData);
             $lines = [];
             $linesTotal = 0;
 
             foreach (\Grav\Plugin\SimpleShop\Inventory\CartStorage::getCart() as $item) {
-                $unit = (int) round(((float) ($item['price'] ?? 0)) * 100);
+                $unit = isset($item['unit_ttc_cents']) ? (int) $item['unit_ttc_cents'] : (int) round(((float) ($item['price'] ?? 0)) * 100);
                 $qty  = (int) ($item['quantity'] ?? 0);
                 if ($unit <= 0 || $qty <= 0) {
                     continue;
@@ -255,7 +268,9 @@ class PaymentGateway implements RedirectPaymentGatewayInterface
                 $linesTotal += $unit * $qty;
             }
 
-            $shipping = (int) round(((float) ($orderData['shipping']['price'] ?? 0)) * 100);
+            $shipping = isset($orderData['shipping']['price_cents'])
+                ? (int) $orderData['shipping']['price_cents']
+                : (int) round(((float) ($orderData['shipping']['price'] ?? 0)) * 100);
             if ($shipping > 0) {
                 $lines[] = [
                     'quantity' => 1,
