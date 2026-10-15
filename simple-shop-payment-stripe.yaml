@@ -1,2 +1,4 @@
-enabled: true
+# Désactivé par défaut : le dossier des plugins est partagé par tous les sites ; chaque site l'active dans
+# sa configuration (user/config/plugins/simple-shop-payment-stripe.yaml : enabled: true, ou Admin2 > Plugins).
+enabled: false
 use_javascript: true
