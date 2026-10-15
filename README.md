@@ -13,7 +13,7 @@ Bibliothèque officielle `stripe-php` embarquée (`stripe-php/`).
 ## Installation
 
 1. Dossier `user/plugins/simple-shop-payment-stripe/` (hébergement mutualisé : `/shared/grav-2/user/plugins/…`, déployé par
-   GitHub Actions, voir `AGENTS.md`). Requiert `simple-shop` et `mvc`.
+   GitHub Actions (rsync/ssh), voir `AGENTS.md`). Requiert `simple-shop` et `mvc`.
 2. Activer le plugin dans la configuration du site (**désactivé par défaut**).
 3. Saisir les clés dans Plugins > Simple Shop Payment Stripe (ou `user/config/plugins/simple-shop-payment-stripe.yaml`) :
 
