@@ -49,7 +49,7 @@ Extraits le 15/10/2026 du dépôt du site `senonevero.flavieng.com` (`private/gr
 ## Installation sur le serveur (hébergement mutualisé multi-domaines)
 
 - Grav 2.0 est installé **une fois** dans `/shared/grav-2/` et sert plusieurs domaines (`/domains/<domaine>/private/grav` = dossier
-  `user://` de chaque site, routeur global `www/index.php`, routeur de domaine `shared/manager/grav/Domain.php`).
+  `user://` de chaque site ; routeurs hors de ces dépôts).
 - Ce plugin est déployé dans **`/shared/grav-2/user/plugins/simple-shop-payment-stripe/`** (chemin absolu chez OVH : `/home/<identifiant>/shared/…`), partagé par tous les domaines.
 - Grav cherche un plugin d'abord dans le dossier du site (`user://plugins`, soit `/domains/<domaine>/private/grav/plugins/simple-shop-payment-stripe`),
   **puis** dans le dossier partagé. Une copie restée dans un site masque donc la version partagée : la supprimer de ce site
@@ -90,8 +90,7 @@ Vérification : le journal de l'étape « Envoi » liste les fichiers transmis ;
 - Commits distincts par étape, poussés directement sur `main` (le déploiement suit).
 
 ## À faire
-- [ ] **Renouveler les clés Stripe et le secret de webhook** avant la mise en production (exposés par l'ancien routeur mutualisé,
-  corrigé le 14/10/2026, et apparus dans des journaux d'outil).
+- [ ] **Clés de production** : créer les clés live et le secret de webhook live au moment de la mise en production (jamais dans ce dépôt).
 - [ ] **Flux réels à tester** (clés de test) : mode JS, mode sans JS, annulation, rechargement de la page de retour (une seule
   commande), montant incohérent refusé, webhook — `docs/TESTS-MANUELS.md` §3.
 - [ ] **Brancher le webhook chez Stripe** (une fois par mode, test puis live) — procédure ci-dessous.
