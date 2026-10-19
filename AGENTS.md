@@ -94,6 +94,9 @@ Vérification : le journal de l'étape « Envoi » liste les fichiers transmis ;
 - [ ] **Flux réels à tester** (clés de test) : mode JS, mode sans JS, annulation, rechargement de la page de retour (une seule
   commande), montant incohérent refusé, webhook — `docs/TESTS-MANUELS.md` §3.
 - [ ] **Brancher le webhook chez Stripe** (une fois par mode, test puis live) — procédure ci-dessous.
+- [ ] **Documents de simple-shop** (19/10/2026, `classes/Gateways/DocumentPaymentGateway.php`) : tester en mode test le paiement
+  d'une facture envoyée depuis Admin2 > Ventes (simple-shop `docs/TESTS-MANUELS.md` §25, points 5 à 7, dont le webhook). Le même
+  point de terminaison et le même événement servent : rien à ajouter chez Stripe.
 
 ## Configuration du webhook Stripe (procédure du site, à refaire en « live » le jour de la mise en production)
 1. **Sur le serveur**, `user/config/plugins/simple-shop-payment-stripe.yaml` : `enabled: true`, clés du mode utilisé renseignées.
@@ -105,7 +108,7 @@ Vérification : le journal de l'étape « Envoi » liste les fichiers transmis ;
 4. Enregistrer, ouvrir le point de terminaison et **révéler le « Secret de signature »** (`whsec_…`).
 5. Le coller dans `webhook_secret` (fichier du serveur ou écran du plugin). Vider le cache Grav. Ne jamais le commiter.
 6. Vérifier : paiement de test (`4242 4242 4242 4242`) puis fermer l'onglet **avant** le retour sur le site ; dans Stripe, la
-   livraison de l'événement affiche *200* et la commande apparaît dans Admin2 > Boutique avec ses e-mails.
+   livraison de l'événement affiche *200* et la commande apparaît dans Admin2 > Ventes avec ses e-mails.
 7. En cas de problème : *Webhooks* → point de terminaison → *Événements* → réponse (`400` secret incorrect ou corps modifié par un
    proxy ; `503` secret vide ; `500` erreur temporaire). Échecs définitifs (montant différent, panier modifié) : `200` + ligne dans
    `logs/grav.log` avec la référence du paiement.

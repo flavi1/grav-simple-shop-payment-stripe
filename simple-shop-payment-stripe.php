@@ -6,6 +6,7 @@ use Grav\Common\Grav;
 use Grav\Common\Plugin;
 use RocketTheme\Toolbox\Event\Event;
 use Grav\Plugin\SimpleShopPaymentStripe\Controllers\WebhookController;
+use Grav\Plugin\SimpleShopPaymentStripe\Gateways\DocumentPaymentGateway;
 use Grav\Plugin\SimpleShopPaymentStripe\Gateways\PaymentGateway;
 
 class SimpleShopPaymentStripePlugin extends Plugin
@@ -83,7 +84,10 @@ class SimpleShopPaymentStripePlugin extends Plugin
     public function onSimpleShopRegisterGateways(Event $event)
     {
         $gateways = $event['gateways'] ?? [];
-        $g = new PaymentGateway();
+        // simple-shop récent : la même passerelle sait aussi régler les documents (factures, demandes de paiement).
+        $g = interface_exists(\Grav\Plugin\SimpleShop\Gateways\RedirectDocumentPaymentGatewayInterface::class)
+            ? new DocumentPaymentGateway()
+            : new PaymentGateway();
         $gateways[$g->getId()] = $g;
         $event['gateways'] = $gateways;
     }

@@ -6,7 +6,12 @@ Passerelle de paiement [Stripe](https://stripe.com) pour le plugin Grav [Simple 
 - ou **page hébergée Stripe** (`use_javascript: false`, Checkout Session) : aucun JavaScript sur le site ;
 - retour de paiement vérifié (statut et montant en centimes), commande créée une seule fois ;
 - **webhook** `/stripe/webhook` (`payment_intent.succeeded`, signature vérifiée) : la commande est créée même si le client ferme
-  son navigateur avant le retour sur le site.
+  son navigateur avant le retour sur le site ;
+- **documents** de simple-shop (factures à régler, factures d'acompte, demandes de paiement envoyées depuis Admin2 > Ventes,
+  `invoicing.manual`) : paiement sur la page hébergée Stripe depuis la page du document (`/document?t=…`), sans JavaScript ;
+  retour vérifié (session liée au jeton du document, statut payé), montant encaissé enregistré sur le document ; le webhook
+  (métadonnée `shop_document_token`) l'enregistre aussi si le client ne revient pas. Proposé si `stripe` figure dans
+  `payments.methods.manual` de simple-shop (ou si cette liste est vide). Test hors ligne : `tests/documents.php`.
 
 Bibliothèque officielle `stripe-php` embarquée (`stripe-php/`).
 
